@@ -275,3 +275,4 @@ If the gateway, service account, or delegated identity is suspected to be compro
 ## WIF migration note
 
 The credential interface is isolated so another provider can be added later, but this release implements and tests only a mounted service-account JSON key. Workload Identity Federation is not claimed as supported. For DWD, WIF is not necessarily a drop-in replacement for a JSON key: generating the DWD JWT assertion can require IAM Credentials `signJwt` permissions and explicit signing/exchange logic. Design and test that path before removing the JSON-key provider.
+# google-mcp
