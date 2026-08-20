@@ -1,0 +1,10 @@
+.env
+.venv
+credentials
+tests/__pycache__
+**/__pycache__
+*.py[cod]
+.git
+.gitignore
+README.md
+

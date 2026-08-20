@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "google-directory": {
+      "type": "streamable-http",
+      "url": "https://google-directory-mcp.example.test/mcp",
+      "headers": {
+        "Authorization": "Bearer <gateway-issued-token>"
+      }
+    }
+  }
+}
+

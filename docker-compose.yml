@@ -1,0 +1,47 @@
+services:
+  google-mcp:
+    build: .
+    container_name: google-mcp
+    restart: unless-stopped
+    environment:
+      GOOGLE_SERVICE_ACCOUNT_FILE: /run/secrets/google_service_account
+      GOOGLE_DELEGATED_ADMIN: ${GOOGLE_DELEGATED_ADMIN:?Set GOOGLE_DELEGATED_ADMIN in .env}
+      GOOGLE_CUSTOMER_ID: ${GOOGLE_CUSTOMER_ID:?Set GOOGLE_CUSTOMER_ID in .env}
+      GOOGLE_ALLOWED_DOMAINS: ${GOOGLE_ALLOWED_DOMAINS:?Set GOOGLE_ALLOWED_DOMAINS in .env}
+      GOOGLE_MCP_TEST_MODE: ${GOOGLE_MCP_TEST_MODE:-false}
+      GOOGLE_MCP_GATEWAY_SECRET: ${GOOGLE_MCP_GATEWAY_SECRET:?Set GOOGLE_MCP_GATEWAY_SECRET in .env}
+      GOOGLE_MCP_AUTHORIZED_USERS: ${GOOGLE_MCP_AUTHORIZED_USERS:?Set GOOGLE_MCP_AUTHORIZED_USERS in .env}
+      GOOGLE_MCP_GATEWAY_SECRET_HEADER: ${GOOGLE_MCP_GATEWAY_SECRET_HEADER:-X-MCP-Gateway-Secret}
+      GOOGLE_MCP_IDENTITY_HEADER: ${GOOGLE_MCP_IDENTITY_HEADER:-X-Authenticated-User}
+      GOOGLE_MCP_CALLER_DOMAINS: ${GOOGLE_MCP_CALLER_DOMAINS:-}
+      GOOGLE_MCP_HOST: 0.0.0.0
+      GOOGLE_MCP_PORT: 8000
+      GOOGLE_MCP_LOG_LEVEL: ${GOOGLE_MCP_LOG_LEVEL:-INFO}
+      AUDIT_HASH_TARGETS: ${AUDIT_HASH_TARGETS:-false}
+      AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY:-}
+      GOOGLE_EXPOSE_ADMIN_FLAGS: ${GOOGLE_EXPOSE_ADMIN_FLAGS:-false}
+      GOOGLE_EXPOSE_2SV_FLAGS: ${GOOGLE_EXPOSE_2SV_FLAGS:-true}
+      GOOGLE_EXPOSE_LAST_LOGIN: ${GOOGLE_EXPOSE_LAST_LOGIN:-true}
+      GOOGLE_EXPOSE_ORG_UNIT: ${GOOGLE_EXPOSE_ORG_UNIT:-true}
+    ports:
+      - "127.0.0.1:8000:8000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - google-mcp-ingress
+    secrets:
+      - google_service_account
+
+secrets:
+  google_service_account:
+    file: ${GOOGLE_SERVICE_ACCOUNT_HOST_FILE:?Set an external credential path in .env}
+
+networks:
+  google-mcp-ingress:
+    external: true
+    name: google-mcp-ingress
