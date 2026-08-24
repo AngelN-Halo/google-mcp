@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 from googleapiclient.errors import HttpError
+from google.auth.exceptions import GoogleAuthError
 
 from config import Settings
 from errors import (
@@ -138,6 +139,14 @@ def test_authorization_errors_are_not_not_found(status: int) -> None:
     directory, _, _ = client(get=[http_error(status)])
     with pytest.raises(DirectoryAuthorizationError):
         directory.user_status("alex@example.test")
+
+
+def test_auth_refresh_errors_are_sanitized_as_authorization_errors() -> None:
+    directory, _, _ = client(get=[GoogleAuthError("private upstream auth detail")])
+    with pytest.raises(DirectoryAuthorizationError) as captured:
+        directory.user_status("alex@example.test")
+    assert "private upstream auth detail" not in str(captured.value)
+    assert captured.value.__cause__ is None
 
 
 def test_429_retries_then_succeeds() -> None:

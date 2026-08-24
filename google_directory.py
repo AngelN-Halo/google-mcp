@@ -197,6 +197,8 @@ class GoogleDirectoryClient:
                     self._delay(attempt)
                     continue
                 raise DirectoryTimeoutError() from None
+            except GoogleAuthError:
+                raise DirectoryAuthorizationError() from None
             except (TransportError, httplib2.ServerNotFoundError, ConnectionError, OSError):
                 if attempt + 1 < self._max_attempts:
                     self._delay(attempt)
