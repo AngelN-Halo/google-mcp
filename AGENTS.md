@@ -16,7 +16,7 @@
 - Compose requires `GOOGLE_SERVICE_ACCOUNT_GID` so non-root UID 10001 can read the non-world-readable host key through its supplementary group.
 - The application binds to `0.0.0.0:8000` inside the container and Compose publishes no host port.
 - Compose uses the existing external Docker network `proxy` used by NPM; proxy to `google-mcp:8000`. Shared-network reachability is a residual risk, so gateway authentication must remain enabled.
-- Production requires the gateway secret and verified authorized caller headers; NPM must overwrite client copies. The shared secret is not individual identity, and external TLS/human authentication remains required.
+- Production requires the shared API key in `Authorization: Bearer <key>`; it authorizes the internal IT group but does not provide individual attribution. Keep external TLS or an equivalent trusted boundary in front of the bearer credential.
 
 ## Verification
 

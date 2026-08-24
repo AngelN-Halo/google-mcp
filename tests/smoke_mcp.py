@@ -23,13 +23,9 @@ async def main() -> int:
 
     output = {"connected": False, "existing_user_state": None, "missing_user_state": None}
     gateway_secret = os.getenv("GOOGLE_TEST_GATEWAY_SECRET", "").strip()
-    caller = os.getenv("GOOGLE_TEST_CALLER", "").strip()
     headers = {}
-    if gateway_secret and caller:
-        headers = {
-            "X-MCP-Gateway-Secret": gateway_secret,
-            "X-Authenticated-User": caller,
-        }
+    if gateway_secret:
+        headers = {"Authorization": f"Bearer {gateway_secret}"}
     transport = StreamableHttpTransport(endpoint, headers=headers)
     async with Client(transport) as client:
         tools = await client.list_tools()

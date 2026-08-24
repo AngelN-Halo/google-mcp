@@ -86,12 +86,10 @@ def test_production_accepts_complete_auth_and_optional_exposure_config(tmp_path:
         "GOOGLE_CUSTOMER_ID": "C012fictional",
         "GOOGLE_ALLOWED_DOMAINS": "example.test,example.org",
         "GOOGLE_MCP_GATEWAY_SECRET": "gateway-secret-that-is-at-least-32-characters",
-        "GOOGLE_MCP_AUTHORIZED_USERS": "Agent1@EXAMPLE.ORG",
         "GOOGLE_EXPOSE_ADMIN_FLAGS": "false",
     }
     settings = load_settings(env)
     assert settings.allowed_domains == ("example.test", "example.org")
-    assert settings.authorized_users == frozenset({"agent1@example.org"})
     assert settings.expose_admin_flags is False
 
 

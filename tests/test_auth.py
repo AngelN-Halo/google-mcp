@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from auth import GatewayAuthMiddleware, authenticate_headers, normalize_caller
+from auth import GatewayAuthMiddleware, authenticate_headers
 from config import Settings
 from request_context import current_request_context
 
@@ -23,35 +23,28 @@ def settings() -> Settings:
         port=8000,
         log_level="INFO",
         gateway_secret=SECRET,
-        authorized_users=frozenset({"agent1@example.org"}),
-        caller_domains=("example.org",),
     )
 
 
-def headers(secret: str = SECRET, identity: str = "Agent1@EXAMPLE.ORG") -> dict[str, list[str]]:
-    return {
-        "x-mcp-gateway-secret": [secret],
-        "x-authenticated-user": [identity],
-    }
+def headers(secret: str = SECRET) -> dict[str, list[str]]:
+    return {"authorization": [f"Bearer {secret}"]}
 
 
-def test_valid_gateway_and_caller_are_normalized() -> None:
-    assert authenticate_headers(headers(), settings()) == "agent1@example.org"
+def test_valid_api_key_is_accepted() -> None:
+    assert authenticate_headers(headers(), settings()) == "shared-api-key"
 
 
 @pytest.mark.parametrize(
     "request_headers",
     [
         {},
-        {"x-mcp-gateway-secret": [SECRET]},
-        {"x-authenticated-user": ["agent1@example.org"]},
+        {"authorization": [SECRET]},
+        {"authorization": ["Basic " + SECRET]},
         headers(secret="wrong-secret-that-is-long-enough-to-test"),
-        headers(identity="agent1@other.test"),
-        headers(identity="not-an-email"),
-        {**headers(), "x-authenticated-user": ["agent1@example.org", "agent1@example.org"]},
+        {"authorization": [f"Bearer {SECRET}", f"Bearer {SECRET}"]},
     ],
 )
-def test_invalid_gateway_or_caller_is_rejected(request_headers: dict[str, list[str]]) -> None:
+def test_invalid_api_key_is_rejected(request_headers: dict[str, list[str]]) -> None:
     with pytest.raises(PermissionError):
         authenticate_headers(request_headers, settings())
 
@@ -61,13 +54,7 @@ def test_test_mode_is_explicitly_the_only_auth_bypass() -> None:
     test_settings = Settings(
         **{**test_settings.__dict__, "test_mode": True, "gateway_secret": None}
     )
-    assert authenticate_headers({}, test_settings) == ""
-
-
-def test_caller_identity_cannot_be_overridden_by_tool_arguments() -> None:
-    assert normalize_caller("agent1@example.org", settings()) == "agent1@example.org"
-    with pytest.raises(ValueError):
-        normalize_caller("agent2@example.org", settings())
+    assert authenticate_headers({}, test_settings) == "shared-api-key-test-mode"
 
 
 def test_http_middleware_rejects_missing_authentication() -> None:
@@ -90,7 +77,7 @@ def test_http_middleware_rejects_missing_authentication() -> None:
     assert events == []
 
 
-def test_http_middleware_provides_verified_caller_and_request_id() -> None:
+def test_http_middleware_provides_shared_key_context_and_request_id() -> None:
     contexts = []
 
     async def app(scope, receive, send):
@@ -105,11 +92,11 @@ def test_http_middleware_provides_verified_caller_and_request_id() -> None:
     middleware = GatewayAuthMiddleware(app, settings())
     asyncio.run(
         middleware(
-            {"type": "http", "headers": [(b"x-mcp-gateway-secret", SECRET.encode()), (b"x-authenticated-user", b"Agent1@EXAMPLE.ORG")]},
+            {"type": "http", "headers": [(b"authorization", f"Bearer {SECRET}".encode())]},
             receive,
             send,
         )
     )
     assert contexts[0] is not None
-    assert contexts[0].caller == "agent1@example.org"
+    assert contexts[0].caller == "shared-api-key"
     assert len(contexts[0].request_id) == 32

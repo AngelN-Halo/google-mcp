@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import hmac
-import re
 import uuid
 from typing import Any
 
 from config import Settings
 from request_context import RequestContext, request_context
-
-
-_EMAIL_RE = re.compile(r"^[^@\s\x00-\x1f\x7f]+@[^@\s\x00-\x1f\x7f]+$")
 
 
 def _headers(scope: dict[str, Any]) -> dict[str, list[str]]:
@@ -22,37 +18,19 @@ def _headers(scope: dict[str, Any]) -> dict[str, list[str]]:
     return values
 
 
-def normalize_caller(value: str, settings: Settings) -> str:
-    if len(value) > 320 or not _EMAIL_RE.fullmatch(value):
-        raise ValueError("invalid caller identity")
-    local, domain = value.rsplit("@", 1)
-    domain = domain.lower()
-    if domain not in settings.caller_domains:
-        raise ValueError("caller identity is outside the allowed domains")
-    normalized = f"{local}@{domain}".lower()
-    if normalized not in settings.authorized_users:
-        raise ValueError("caller identity is not authorized")
-    return normalized
-
-
 def authenticate_headers(headers: dict[str, list[str]], settings: Settings) -> str:
-    """Validate the gateway secret and verified caller identity headers."""
+    """Validate the shared API key from the Authorization header."""
     if settings.test_mode:
-        return ""
+        return "shared-api-key-test-mode"
     secret_values = headers.get(settings.gateway_secret_header.lower(), [])
-    identity_values = headers.get(settings.identity_header.lower(), [])
+    expected = f"Bearer {settings.gateway_secret}" if settings.gateway_secret else ""
     if (
         len(secret_values) != 1
-        or settings.gateway_secret is None
-        or not hmac.compare_digest(secret_values[0], settings.gateway_secret)
+        or not expected
+        or not hmac.compare_digest(secret_values[0], expected)
     ):
-        raise PermissionError("invalid gateway authentication")
-    if len(identity_values) != 1:
-        raise PermissionError("missing caller identity")
-    try:
-        return normalize_caller(identity_values[0], settings)
-    except ValueError as exc:
-        raise PermissionError("invalid caller identity") from exc
+        raise PermissionError("invalid API key")
+    return "shared-api-key"
 
 
 async def _send_json(send: Any, status: int, message: str) -> None:

@@ -9,13 +9,13 @@ The service performs only `users.get` and `users.list`. It cannot create, update
 ```text
 MCP client
   -> external TLS and human authentication at Nginx Proxy Manager
-    -> existing Docker `proxy` network + gateway secret and verified identity headers
+    -> existing Docker `proxy` network + shared API key
       -> FastMCP /mcp on 0.0.0.0:8000
         -> fixed-subject DWD credential provider
           -> Google Admin SDK Directory API (read-only users scope)
 ```
 
-The external gateway authenticates the human and must inject a shared gateway secret plus a verified caller identity. The application verifies both, authorizes the identity, and includes it with a generated request ID in every tool audit event. The shared secret proves the request came through the trusted ingress path; it does not identify an individual and is not a replacement for network isolation or external TLS. NPM must remove client-supplied copies of both headers before injecting its own values.
+The service authenticates callers with one shared API key in `Authorization: Bearer <key>`. This intentionally authorizes any holder of the key and does not identify individual IT staff; application audit events record `shared-api-key` plus a generated request ID. The key is not a replacement for network isolation or external TLS.
 
 The application binds to `0.0.0.0:8000` inside the container so NPM can reach it. Compose publishes no host port; the service is reachable as `google-mcp:8000` only from containers on the existing external `proxy` network. Because `proxy` is shared by other containers, gateway authentication remains mandatory and those containers could reach the service directly if they obtain valid gateway credentials.
 
@@ -68,12 +68,9 @@ The Compose `secrets` mechanism mounts the host file read-only but does **not** 
 | `GOOGLE_DELEGATED_ADMIN` | yes | Fixed delegated Workspace admin subject |
 | `GOOGLE_CUSTOMER_ID` | yes in production | Explicit Directory customer; `my_customer` is allowed only in explicit test mode |
 | `GOOGLE_ALLOWED_DOMAINS` | yes | Comma-separated Workspace domains accepted for users and aliases |
-| `GOOGLE_MCP_TEST_MODE` | no | Must be explicitly `true` for unit/test configuration without gateway auth |
-| `GOOGLE_MCP_GATEWAY_SECRET` | yes in production | Random shared secret from the trusted gateway; never a tool argument or log value |
-| `GOOGLE_MCP_AUTHORIZED_USERS` | yes in production | Comma-separated authorized human identities |
-| `GOOGLE_MCP_GATEWAY_SECRET_HEADER` | no | Header name; defaults to `X-MCP-Gateway-Secret` |
-| `GOOGLE_MCP_IDENTITY_HEADER` | no | Header name; defaults to `X-Authenticated-User` |
-| `GOOGLE_MCP_CALLER_DOMAINS` | no | Optional caller-domain allowlist; otherwise uses `GOOGLE_ALLOWED_DOMAINS` |
+| `GOOGLE_MCP_TEST_MODE` | no | Must be explicitly `true` for unit/test configuration without API-key auth |
+| `GOOGLE_MCP_GATEWAY_SECRET` | yes in production | Random shared API key; never a tool argument or log value |
+| `GOOGLE_MCP_GATEWAY_SECRET_HEADER` | no | API-key header name; defaults to `Authorization` and expects `Bearer <key>` |
 | `GOOGLE_MCP_HOST` | no | Listen address; defaults to `0.0.0.0` in code |
 | `GOOGLE_MCP_PORT` | no | Listen port; defaults to `8000` |
 | `GOOGLE_MCP_LOG_LEVEL` | no | `CRITICAL`, `ERROR`, `WARNING`, `INFO`, or `DEBUG` |
@@ -126,7 +123,7 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Set the real external credential path, delegated admin, customer ID, comma-separated `GOOGLE_ALLOWED_DOMAINS`, gateway secret, and `GOOGLE_MCP_AUTHORIZED_USERS`. Set `GOOGLE_SERVICE_ACCOUNT_GID` to the credential file's host group ID, obtained with `stat -c '%g' /path/to/key`; keep the file non-world-readable. The gateway secret must be at least 32 characters and must match the secret configured in NPM. Set `GOOGLE_MCP_CALLER_DOMAINS` only when caller domains differ from Workspace data domains. Keep `GOOGLE_MCP_TEST_MODE=false`.
+Set the real external credential path, delegated admin, customer ID, comma-separated `GOOGLE_ALLOWED_DOMAINS`, and shared API key. Set `GOOGLE_SERVICE_ACCOUNT_GID` to the credential file's host group ID, obtained with `stat -c '%g' /path/to/key`; keep the file non-world-readable. The API key must be at least 32 characters. Keep `GOOGLE_MCP_TEST_MODE=false`.
 
 Generate random values without putting them in source control:
 
@@ -139,7 +136,7 @@ Use the first value for `GOOGLE_MCP_GATEWAY_SECRET` and the second for `AUDIT_HM
 
 ### 5. Configure the NPM Proxy Host
 
-In **Proxy Hosts > Add Proxy Host**, use the external DNS name, scheme `http`, forward hostname `google-mcp`, port `8000`, and path `/mcp`. Preserve `/mcp` without rewriting. Issue/select the TLS certificate and enable **Force SSL**. Use SSO or another authentication mechanism that provides a verified `$remote_user`; NPM basic access lists that do not populate `$remote_user` are insufficient for caller attribution.
+In **Proxy Hosts > Add Proxy Host**, use the external DNS name, scheme `http`, forward hostname `google-mcp`, port `8000`, and path `/mcp`. Preserve `/mcp` without rewriting. The Open WebUI client supplies the API key in the `Authorization` header. TLS is strongly recommended because this is a bearer credential.
 
 Add this NPM advanced configuration with placeholders replaced only in NPM:
 
@@ -149,11 +146,10 @@ proxy_buffering off;
 proxy_read_timeout 3600s;
 proxy_send_timeout 3600s;
 proxy_set_header Connection "";
-proxy_set_header X-MCP-Gateway-Secret "REPLACE_WITH_SECRET_FROM_NPM_SECRET_STORE";
-proxy_set_header X-Authenticated-User $remote_user;
+proxy_set_header Authorization $http_authorization;
 ```
 
-Both POST and GET must reach `/mcp`; do not restrict the route to GET. NPM must overwrite, not pass through, both authentication headers. The shared gateway secret proves the ingress path but does not identify an individual. Do not enable permissive CORS.
+Both POST and GET must reach `/mcp`; do not restrict the route to GET. Preserve the `Authorization` header. The shared API key authorizes the internal IT group but does not identify an individual, so rotate it if exposed. Do not enable permissive CORS.
 
 ### 6. Validate, build, and start
 
@@ -172,17 +168,16 @@ The application binds to `0.0.0.0:8000` inside the container. No host port is pu
 
 ### 7. Run the authenticated smoke test
 
-Use a known active user and an authorized caller. Set these only in the shell, never in a file or command history where possible:
+Use a known active user. Set these only in the shell, never in a file or command history where possible:
 
 ```bash
 export GOOGLE_TEST_USER='known-active-user@example.test'
 export GOOGLE_TEST_MISSING_USER='known-missing-user@example.test' # optional
-export GOOGLE_TEST_GATEWAY_SECRET='the-configured-gateway-secret'
-export GOOGLE_TEST_CALLER='agent1@example.org'
+export GOOGLE_TEST_GATEWAY_SECRET='the-configured-api-key'
 python tests/smoke_mcp.py https://mcp.example.test/mcp
 ```
 
-The smoke test verifies the four-tool set, caller-authenticated connection, `ACTIVE` status for the known user, and optional `NOT_FOUND` behavior. It contacts Google and is not a unit test.
+The smoke test verifies the four-tool set, API-key-authenticated connection, `ACTIVE` status for the known user, and optional `NOT_FOUND` behavior. It contacts Google and is not a unit test.
 
 ## Tests
 
@@ -273,7 +268,7 @@ The configured customer ID is always used. Results outside the allowed domains a
 
 ## Logging and failure behavior
 
-Each tool call emits one structured JSON audit event containing UTC timestamp, generated request ID, verified caller identity (or HMAC pseudonym), tool, masked or HMAC-pseudonymized target, result state/count, latency, and sanitized error category. The service does not log gateway secrets, access tokens, credential contents or paths, private keys, complete Google records, raw prompts, aliases, names, phone/profile data, or raw Google error bodies.
+Each tool call emits one structured JSON audit event containing UTC timestamp, generated request ID, shared-key authentication marker, tool, masked or HMAC-pseudonymized target, result state/count, latency, and sanitized error category. The service does not log gateway secrets, API keys, access tokens, credential contents or paths, private keys, complete Google records, raw prompts, aliases, names, phone/profile data, or raw Google error bodies.
 
 Only HTTP 404 maps to `NOT_FOUND`. HTTP 401/403 become `AUTHORIZATION`; 429 and eligible 5xx (`500`, `502`, `503`, `504`) receive at most four total attempts with exponential backoff and jitter. Timeouts and transient transport failures are also bounded. Other malformed or upstream failures remain explicit sanitized errors.
 
