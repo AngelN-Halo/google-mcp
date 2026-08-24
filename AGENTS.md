@@ -13,6 +13,7 @@
 
 - Keep service-account credentials outside the repository and image; never log credentials, tokens, private keys, raw Google error bodies, or complete user records.
 - For Compose, `GOOGLE_SERVICE_ACCOUNT_HOST_FILE` is the host path and is mounted read-only as `/run/secrets/google_service_account`; direct local startup instead needs `GOOGLE_SERVICE_ACCOUNT_FILE` as an absolute readable path.
+- Compose requires `GOOGLE_SERVICE_ACCOUNT_GID` so non-root UID 10001 can read the non-world-readable host key through its supplementary group.
 - The application binds to `0.0.0.0:8000` inside the container and Compose publishes no host port.
 - Compose uses the existing external Docker network `proxy` used by NPM; proxy to `google-mcp:8000`. Shared-network reachability is a residual risk, so gateway authentication must remain enabled.
 - Production requires the gateway secret and verified authorized caller headers; NPM must overwrite client copies. The shared secret is not individual identity, and external TLS/human authentication remains required.

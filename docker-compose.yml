@@ -32,6 +32,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    group_add:
+      - ${GOOGLE_SERVICE_ACCOUNT_GID:?Set GOOGLE_SERVICE_ACCOUNT_GID to the credential file group ID in .env}
     networks:
       - proxy
     secrets:

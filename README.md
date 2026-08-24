@@ -126,7 +126,7 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Set the real external credential path, delegated admin, customer ID, comma-separated `GOOGLE_ALLOWED_DOMAINS`, gateway secret, and `GOOGLE_MCP_AUTHORIZED_USERS`. The gateway secret must be at least 32 characters and must match the secret configured in NPM. Set `GOOGLE_MCP_CALLER_DOMAINS` only when caller domains differ from Workspace data domains. Keep `GOOGLE_MCP_TEST_MODE=false`.
+Set the real external credential path, delegated admin, customer ID, comma-separated `GOOGLE_ALLOWED_DOMAINS`, gateway secret, and `GOOGLE_MCP_AUTHORIZED_USERS`. Set `GOOGLE_SERVICE_ACCOUNT_GID` to the credential file's host group ID, obtained with `stat -c '%g' /path/to/key`; keep the file non-world-readable. The gateway secret must be at least 32 characters and must match the secret configured in NPM. Set `GOOGLE_MCP_CALLER_DOMAINS` only when caller domains differ from Workspace data domains. Keep `GOOGLE_MCP_TEST_MODE=false`.
 
 Generate random values without putting them in source control:
 
@@ -135,7 +135,7 @@ openssl rand -base64 48
 openssl rand -base64 48
 ```
 
-Use the first value for `GOOGLE_MCP_GATEWAY_SECRET` and the second for `AUDIT_HMAC_KEY` when audit pseudonymization is wanted. Keep the service-account JSON outside the repository; Compose mounts it read-only inside the container.
+Use the first value for `GOOGLE_MCP_GATEWAY_SECRET` and the second for `AUDIT_HMAC_KEY` when audit pseudonymization is wanted. Keep the service-account JSON outside the repository; Compose mounts it read-only inside the container and grants only its host group as a supplementary group to the non-root process.
 
 ### 5. Configure the NPM Proxy Host
 
