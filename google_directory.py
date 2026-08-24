@@ -155,7 +155,9 @@ class GoogleDirectoryClient:
                 raise DomainPolicyError()
             return f"email='{local}@{domain.lower()}'"
         escaped = candidate.replace("\\", "\\\\").replace("'", "\\'")
-        return f"email='{escaped}*' or name='{escaped}*'"
+        if any(char in escaped for char in (".", "_", "-", "+")):
+            return f"email:{escaped}*"
+        return f"name:'{escaped}'"
 
     @staticmethod
     def validate_limit(limit: int | None) -> int:

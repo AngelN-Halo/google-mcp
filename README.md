@@ -238,7 +238,7 @@ For `NOT_FOUND`, exposed boolean fields are `false`, disabled fields are `null`,
 
 `google_user_summary` includes all status fields plus `requested_email`, `display_name`, `given_name`, `family_name`, `aliases`, and `non_editable_aliases`. It uses one `users.get` call.
 
-`google_user_search` accepts a plain human-entered fragment, not Google Directory query syntax. It safely constructs an email-prefix/name-prefix query or an exact allowed-domain email query.
+`google_user_search` accepts a plain human-entered fragment, not Google Directory query syntax. It safely constructs an exact allowed-domain email query, an email-prefix query, or a whole-word name contains query.
 
 `google_user_search`:
 

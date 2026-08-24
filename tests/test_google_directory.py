@@ -257,7 +257,7 @@ def test_search_default_limit_customer_fields_and_schema() -> None:
     call = users.list_calls[0]
     assert call["customer"] == "C012fictional"
     assert call["maxResults"] == 10
-    assert call["query"] == "email='Alex Rivera*' or name='Alex Rivera*'"
+    assert call["query"] == "name:'Alex Rivera'"
     assert "nextPageToken" in call["fields"]
 
 
@@ -289,7 +289,13 @@ def test_exact_allowed_domain_email_search_is_constructed_safely() -> None:
 def test_quotes_are_escaped_and_query_operators_are_not_forwarded() -> None:
     directory, users, _ = client(listed=[{"users": []}])
     directory.user_search("O'Neil")
-    assert users.list_calls[0]["query"] == "email='O\\'Neil*' or name='O\\'Neil*'"
+    assert users.list_calls[0]["query"] == "name:'O\\'Neil'"
+
+
+def test_email_prefix_search_is_constructed_safely() -> None:
+    directory, users, _ = client(listed=[{"users": []}])
+    directory.user_search("angel.navarrette")
+    assert users.list_calls[0]["query"] == "email:angel.navarrette*"
 
 
 def test_optional_status_fields_are_null_when_disabled() -> None:
