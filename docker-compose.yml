@@ -23,8 +23,8 @@ services:
       GOOGLE_EXPOSE_2SV_FLAGS: ${GOOGLE_EXPOSE_2SV_FLAGS:-true}
       GOOGLE_EXPOSE_LAST_LOGIN: ${GOOGLE_EXPOSE_LAST_LOGIN:-true}
       GOOGLE_EXPOSE_ORG_UNIT: ${GOOGLE_EXPOSE_ORG_UNIT:-true}
-    ports:
-      - "127.0.0.1:8000:8000"
+    expose:
+      - "8000"
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
@@ -33,7 +33,7 @@ services:
     cap_drop:
       - ALL
     networks:
-      - google-mcp-ingress
+      - proxy
     secrets:
       - google_service_account
 
@@ -42,6 +42,6 @@ secrets:
     file: ${GOOGLE_SERVICE_ACCOUNT_HOST_FILE:?Set an external credential path in .env}
 
 networks:
-  google-mcp-ingress:
+  proxy:
     external: true
-    name: google-mcp-ingress
+    name: proxy

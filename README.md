@@ -9,7 +9,7 @@ The service performs only `users.get` and `users.list`. It cannot create, update
 ```text
 MCP client
   -> external TLS and human authentication at Nginx Proxy Manager
-    -> dedicated ingress network + gateway secret and verified identity headers
+    -> existing Docker `proxy` network + gateway secret and verified identity headers
       -> FastMCP /mcp on 0.0.0.0:8000
         -> fixed-subject DWD credential provider
           -> Google Admin SDK Directory API (read-only users scope)
@@ -17,7 +17,7 @@ MCP client
 
 The external gateway authenticates the human and must inject a shared gateway secret plus a verified caller identity. The application verifies both, authorizes the identity, and includes it with a generated request ID in every tool audit event. The shared secret proves the request came through the trusted ingress path; it does not identify an individual and is not a replacement for network isolation or external TLS. NPM must remove client-supplied copies of both headers before injecting its own values.
 
-The application binds to `0.0.0.0:8000` inside the container so Docker and NPM can reach it. Compose publishes only `127.0.0.1:8000:8000` on the host. The Compose service uses a dedicated external Docker network named `google-mcp-ingress`; attach only NPM and this service to that network. Do not use the general-purpose `proxy` network.
+The application binds to `0.0.0.0:8000` inside the container so NPM can reach it. Compose publishes no host port; the service is reachable as `google-mcp:8000` only from containers on the existing external `proxy` network. Because `proxy` is shared by other containers, gateway authentication remains mandatory and those containers could reach the service directly if they obtain valid gateway credentials.
 
 The MCP process validates input and the allowed email domains, constructs bounded Google queries from plain search terms, limits search output, requests partial response fields, filters cross-domain aliases, removes control/format characters from directory text, and returns narrow stable schemas. Directory text is untrusted data and is explicitly marked as such in MCP server/tool instructions; clients must not treat names, aliases, paths, or queries as instructions. This is a trust-boundary control, not a substitute for the MCP client's system-level prompt-injection defenses.
 
@@ -86,41 +86,62 @@ The Compose `secrets` mechanism mounts the host file read-only but does **not** 
 
 Normal startup validates configuration and the credential file path and then constructs delegated credentials. It fails fast with a sanitized error if configuration or credential initialization fails. Imports and unit tests do not require credentials.
 
-## Build and run
+## Deployment Runbook
+
+Complete these steps in order for production. This repository does not modify NPM, create Google resources, or change Workspace/DWD settings automatically.
+
+### 1. Prepare Google access
+
+Complete the Google prerequisites above. Confirm the delegated admin has only Users Read and Organizational Units Read, DWD authorizes the exact phase-one scope, and `GOOGLE_CUSTOMER_ID` is an explicit customer ID.
+
+### 2. Verify the existing proxy network
+
+NPM and the Google MCP must share the existing external network named `proxy`:
 
 ```bash
-cd google-mcp
+docker network inspect proxy
+```
+
+If it does not exist, start the NPM project first. Do not create a second network for this service.
+
+### 3. Confirm NPM network membership
+
+The NPM project in `~/docker/npm` already attaches `app` to `proxy`. Verify it without changing the live configuration:
+
+```bash
+cd ~/docker/npm
+docker compose config
+docker network inspect proxy
+```
+
+The Google MCP Compose file also attaches only to this external `proxy` network and publishes no host port.
+
+### 4. Create `.env`
+
+From this repository:
+
+```bash
+cd ~/docker/google-mcp/google-mcp
 cp .env.example .env
 chmod 600 .env
-# Edit .env; the host credential path must remain outside this repository.
-docker compose config
-docker compose build
-docker compose up -d
 ```
 
-The local endpoint is `http://127.0.0.1:8000/mcp`; NPM should use `http://google-mcp:8000/mcp` over the dedicated ingress network. Inspect startup without exposing secrets:
+Set the real external credential path, delegated admin, customer ID, comma-separated `GOOGLE_ALLOWED_DOMAINS`, gateway secret, and `GOOGLE_MCP_AUTHORIZED_USERS`. The gateway secret must be at least 32 characters and must match the secret configured in NPM. Set `GOOGLE_MCP_CALLER_DOMAINS` only when caller domains differ from Workspace data domains. Keep `GOOGLE_MCP_TEST_MODE=false`.
+
+Generate random values without putting them in source control:
 
 ```bash
-docker compose ps
-docker compose logs --tail=100 google-mcp
+openssl rand -base64 48
+openssl rand -base64 48
 ```
 
-NPM is outside this repository and has not been modified. Add the following network to its Compose project, attach `app` to it, and create the network before starting both projects:
+Use the first value for `GOOGLE_MCP_GATEWAY_SECRET` and the second for `AUDIT_HMAC_KEY` when audit pseudonymization is wanted. Keep the service-account JSON outside the repository; Compose mounts it read-only inside the container.
 
-```yaml
-services:
-  app:
-    networks:
-      - proxy
-      - google-mcp-ingress
+### 5. Configure the NPM Proxy Host
 
-networks:
-  google-mcp-ingress:
-    external: true
-    name: google-mcp-ingress
-```
+In **Proxy Hosts > Add Proxy Host**, use the external DNS name, scheme `http`, forward hostname `google-mcp`, port `8000`, and path `/mcp`. Preserve `/mcp` without rewriting. Issue/select the TLS certificate and enable **Force SSL**. Use SSO or another authentication mechanism that provides a verified `$remote_user`; NPM basic access lists that do not populate `$remote_user` are insufficient for caller attribution.
 
-Then create an authenticated NPM Proxy Host forwarding to hostname `google-mcp`, port `8000`, and path `/mcp`. Streamable HTTP requires forwarding both POST and GET, preserving the `/mcp` path without rewriting, disabling response buffering, and using sufficiently long read/send timeouts. Example NPM advanced configuration, using placeholders only:
+Add this NPM advanced configuration with placeholders replaced only in NPM:
 
 ```nginx
 proxy_http_version 1.1;
@@ -132,28 +153,43 @@ proxy_set_header X-MCP-Gateway-Secret "REPLACE_WITH_SECRET_FROM_NPM_SECRET_STORE
 proxy_set_header X-Authenticated-User $remote_user;
 ```
 
-NPM must overwrite these headers, not pass through client values. If the selected NPM authentication mechanism does not populate `$remote_user`, use an SSO/authentication proxy that supplies a verified identity header; do not treat the shared gateway secret as individual caller identity. Do not enable permissive CORS.
+Both POST and GET must reach `/mcp`; do not restrict the route to GET. NPM must overwrite, not pass through, both authentication headers. The shared gateway secret proves the ingress path but does not identify an individual. Do not enable permissive CORS.
 
-If the dedicated network does not exist yet, create it before starting either Compose project:
+### 6. Validate, build, and start
 
-```bash
-docker network create google-mcp-ingress
-```
-
-Stop and remove the container/network while retaining the external credential file:
+Do not paste rendered Compose output into tickets or chat because it contains environment values and the external credential path:
 
 ```bash
-docker compose down
+cd ~/docker/google-mcp/google-mcp
+docker compose config
+docker compose build
+docker compose up -d
+docker compose ps
+docker compose logs --tail=100 google-mcp
 ```
 
-An MCP client example is in [`examples/mcp-client.json`](examples/mcp-client.json). Its URL, hostname, and token are placeholders. Adapt the shape to the specific client and authentication gateway.
+The application binds to `0.0.0.0:8000` inside the container. No host port is published; NPM reaches `http://google-mcp:8000/mcp` over `proxy`.
+
+### 7. Run the authenticated smoke test
+
+Use a known active user and an authorized caller. Set these only in the shell, never in a file or command history where possible:
+
+```bash
+export GOOGLE_TEST_USER='known-active-user@example.test'
+export GOOGLE_TEST_MISSING_USER='known-missing-user@example.test' # optional
+export GOOGLE_TEST_GATEWAY_SECRET='the-configured-gateway-secret'
+export GOOGLE_TEST_CALLER='agent1@example.org'
+python tests/smoke_mcp.py https://mcp.example.test/mcp
+```
+
+The smoke test verifies the four-tool set, caller-authenticated connection, `ACTIVE` status for the known user, and optional `NOT_FOUND` behavior. It contacts Google and is not a unit test.
 
 ## Tests
 
 Unit tests mock the Directory API and never contact Google:
 
 ```bash
-cd google-mcp
+cd ~/docker/google-mcp/google-mcp
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements-dev.txt
@@ -169,17 +205,7 @@ docker run --rm --user "$(id -u):$(id -g)" --read-only --tmpfs /tmp:size=16m \
   google-mcp:test pytest -q -p no:cacheprovider
 ```
 
-The live smoke script runs only when explicitly invoked. Use fictional variables below as placeholders and set real test addresses only in the shell, never in files:
-
-```bash
-export GOOGLE_TEST_USER='known-active-user@example.test'
-export GOOGLE_TEST_MISSING_USER='known-missing-user@example.test' # optional
-export GOOGLE_TEST_GATEWAY_SECRET='set-only in the shell; never in a file' # required outside test mode
-export GOOGLE_TEST_CALLER='agent1@example.org' # required outside test mode
-python tests/smoke_mcp.py http://127.0.0.1:8000/mcp
-```
-
-It confirms the exact phase-one tool list, requires the known user to return `ACTIVE`, optionally requires the missing user to return `NOT_FOUND`, and prints only states—not complete user records.
+The live smoke script is documented in the deployment runbook above. It requires real test addresses and gateway headers, contacts Google, and prints only states—not complete user records.
 
 ## Stable response schemas
 
@@ -201,7 +227,7 @@ It confirms the exact phase-one tool list, requires the known user to return `AC
 }
 ```
 
-For `NOT_FOUND`, boolean fields are `false`, nullable fields are `null`, and `never_logged_in` is `false` because no account exists from which to infer login history.
+For `NOT_FOUND`, exposed boolean fields are `false`, disabled fields are `null`, and `never_logged_in` is `false` when login exposure is enabled because no account exists from which to infer login history.
 
 `google_user_aliases`:
 
