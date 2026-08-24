@@ -2,7 +2,7 @@
 
 Production-oriented, read-only MCP service for narrowly scoped Google Workspace user lookups. It uses Python, FastMCP Streamable HTTP, the Google Admin SDK Directory API, a dedicated service-account JSON credential, Domain-Wide Delegation (DWD), and one fixed delegated-admin subject from server configuration.
 
-The service performs only `users.get` and `users.list`. It cannot create, update, suspend, archive, rename, delete, or otherwise modify users.
+The service performs only read-only `users.get`, `users.list`, and `groups.list` operations. It cannot create, update, suspend, archive, rename, delete, or otherwise modify users or groups.
 
 ## Architecture and threat boundary
 
@@ -12,7 +12,7 @@ MCP client
     -> existing Docker `proxy` network + shared API key
       -> FastMCP /mcp on 0.0.0.0:8000
         -> fixed-subject DWD credential provider
-          -> Google Admin SDK Directory API (read-only users scope)
+          -> Google Admin SDK Directory API (read-only users and groups scopes)
 ```
 
 The service authenticates callers with one shared API key in `Authorization: Bearer <key>`. This intentionally authorizes any holder of the key and does not identify individual IT staff; application audit events record `shared-api-key` plus a generated request ID. The key is not a replacement for network isolation or external TLS.
@@ -23,37 +23,35 @@ The MCP process validates input and the allowed email domains, constructs bounde
 
 DWD is powerful: Google authorizes the OAuth client and scopes, but does not enforce this application's fixed-subject choice. A holder of the service-account private key can write different code that chooses another subject permitted by DWD. This service fixes `GOOGLE_DELEGATED_ADMIN` in configuration and never accepts the subject as a tool argument, but that is an application control rather than a Google-enforced subject restriction.
 
-## Phase-one tools
+## Tools
 
 - `google_user_status(email)`
 - `google_user_search(query, limit=10)`; `query` is a plain name/email fragment, hard maximum `20`
 - `google_user_aliases(email)`
 - `google_user_summary(email)`
+- `google_user_groups(email)`; returns same-domain groups for which the user is a member
 
 Every explicit email argument must belong to one of `GOOGLE_ALLOWED_DOMAINS`, compared case-insensitively. Returned alias lists contain only those domains. Secondary Workspace domains must be listed explicitly. The service never follows an alias into another domain.
 
-Planned, not implemented:
-
-- `google_user_groups(email)` requires the additional scope `https://www.googleapis.com/auth/admin.directory.group.readonly`.
-
-No group scope or group API operation is present in phase one.
+`google_user_groups` uses `groups.list(userKey=email)` with a maximum of 100 upstream results. Group emails outside `GOOGLE_ALLOWED_DOMAINS` are filtered, page tokens are never exposed, and `truncated` indicates that Google returned another page.
 
 ## Google prerequisites
 
 These are manual Google administration steps. This repository does not create cloud resources or credentials.
 
 1. Create a dedicated Google Cloud project for this workload.
-2. Enable **Admin SDK API** (`admin.googleapis.com`). No other Google API is required by phase one.
+2. Enable **Admin SDK API** (`admin.googleapis.com`). No other Google API is required.
 3. Create a dedicated service account and enable Domain-Wide Delegation for it.
 4. Create or select a dedicated Workspace delegated-admin user. A narrowly scoped custom admin role should grant:
    - Admin API > Users > Read (`USERS_RETRIEVE`)
    - Admin API > Organizational Units > Read (`ORGANIZATION_UNITS_RETRIEVE`)
 5. Assign that role across every OU the service is intended to query. Do not use a daily super-admin account.
 6. In Admin console, open **Security > Access and data control > API controls > Manage Domain Wide Delegation**. Add the service account's **numeric OAuth client ID**, not its email address.
-7. Authorize exactly this phase-one scope:
+7. Authorize exactly these read-only scopes:
 
    ```text
-   https://www.googleapis.com/auth/admin.directory.user.readonly
+    https://www.googleapis.com/auth/admin.directory.user.readonly
+    https://www.googleapis.com/auth/admin.directory.group.readonly
    ```
 
 8. Create a JSON key only if a keyless deployment method is not currently available. Move it immediately to a root/deployment-owner controlled directory outside this repository, set host permissions such as `chmod 600`, restrict directory traversal, and document an owner and rotation schedule. Revoke the old key after a tested rotation.
@@ -89,7 +87,7 @@ Complete these steps in order for production. This repository does not modify NP
 
 ### 1. Prepare Google access
 
-Complete the Google prerequisites above. Confirm the delegated admin has only Users Read and Organizational Units Read, DWD authorizes the exact phase-one scope, and `GOOGLE_CUSTOMER_ID` is an explicit customer ID.
+Complete the Google prerequisites above. Confirm the delegated admin has Users Read, Organizational Units Read, and the required Groups Read privilege, DWD authorizes exactly the two read-only scopes, and `GOOGLE_CUSTOMER_ID` is an explicit customer ID.
 
 ### 2. Verify the existing proxy network
 
@@ -276,8 +274,8 @@ Only HTTP 404 maps to `NOT_FOUND`. HTTP 401/403 become `AUTHORIZATION`; 429 and 
 
 - `invalid_grant`: verify the delegated subject exists, has not been suspended, is in the same Workspace tenant, and the server clock is synchronized with NTP. Also verify the credential belongs to the DWD-enabled service account.
 - `unauthorized_client`: use the service account's numeric OAuth client ID in DWD and authorize the exact scope shown above. DWD changes can take time to propagate.
-- `403` / `AUTHORIZATION`: verify Users Read and Organizational Units Read privileges, OU assignment scope, API access controls, the delegated subject, and the Admin SDK API. A valid key alone is insufficient.
-- Missing scope: compare the DWD entry character-for-character with `https://www.googleapis.com/auth/admin.directory.user.readonly`. Phase one intentionally requests no group, Drive, Gmail, Calendar, role-management, or security-management scopes.
+- `403` / `AUTHORIZATION`: verify Users Read, Organizational Units Read, and Groups Read privileges, OU assignment scope, API access controls, the delegated subject, and the Admin SDK API. A valid key alone is insufficient.
+- Missing scope: compare the DWD entry character-for-character with both configured read-only scopes. This service intentionally requests no Drive, Gmail, Calendar, role-management, or security-management scopes.
 - Wrong delegated subject: correct `GOOGLE_DELEGATED_ADMIN`; it must be the dedicated delegated admin whose role covers the queried OUs. The MCP caller cannot override it.
 - Clock skew: synchronize the Docker host clock. Signed JWT assertions are time-sensitive.
 - `NOT_FOUND` unexpectedly: confirm the requested email uses the configured allowed domain and is a current, non-deleted Directory user. Authorization and rate-limit failures never become `NOT_FOUND`.

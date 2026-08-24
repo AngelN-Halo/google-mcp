@@ -233,3 +233,46 @@ def search_item(
         "never_logged_in": status["never_logged_in"],
         "org_unit_path": status["org_unit_path"],
     }
+
+
+def groups_response(
+    requested_email: str,
+    record: dict[str, Any],
+    allowed_domains: Iterable[str],
+) -> dict[str, Any]:
+    raw_groups = record.get("groups", [])
+    if not isinstance(raw_groups, list) or not all(isinstance(group, dict) for group in raw_groups):
+        raise DirectoryResponseError()
+    allowed = set(allowed_domains)
+    groups: list[dict[str, str | None]] = []
+    for group in raw_groups:
+        email = group.get("email")
+        if not isinstance(email, str) or email.count("@") != 1:
+            raise DirectoryResponseError()
+        local, domain = email.rsplit("@", 1)
+        if not local or domain.lower() not in allowed:
+            continue
+        name = group.get("name")
+        description = group.get("description")
+        if name is not None and not isinstance(name, str):
+            raise DirectoryResponseError()
+        if description is not None and not isinstance(description, str):
+            raise DirectoryResponseError()
+        groups.append(
+            {
+                "email": sanitize_external_text(f"{local}@{domain.lower()}"),
+                "name": None if name is None else sanitize_external_text(name),
+                "description": (
+                    None if description is None else sanitize_external_text(description)
+                ),
+            }
+        )
+    groups.sort(key=lambda group: group["email"].lower())
+    has_next_page = bool(record.get("nextPageToken"))
+    return {
+        "email": sanitize_external_text(requested_email),
+        "count": len(groups),
+        "truncated": has_next_page,
+        "next_page_available": has_next_page,
+        "groups": groups,
+    }

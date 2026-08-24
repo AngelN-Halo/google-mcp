@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from config import PHASE_ONE_SCOPE, load_settings
+from config import GROUPS_READONLY_SCOPE, PHASE_ONE_SCOPE, load_settings
 from errors import ConfigError
 
 
@@ -25,7 +25,7 @@ def test_configuration_defaults_and_only_phase_one_scope(tmp_path: Path) -> None
     assert settings.allowed_domains == ("example.test",)
     assert settings.host == "0.0.0.0"
     assert settings.port == 8000
-    assert settings.scopes == (PHASE_ONE_SCOPE,)
+    assert settings.scopes == (PHASE_ONE_SCOPE, GROUPS_READONLY_SCOPE)
 
 
 @pytest.mark.parametrize(

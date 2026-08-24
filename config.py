@@ -13,6 +13,7 @@ from errors import ConfigError
 
 
 PHASE_ONE_SCOPE = "https://www.googleapis.com/auth/admin.directory.user.readonly"
+GROUPS_READONLY_SCOPE = "https://www.googleapis.com/auth/admin.directory.group.readonly"
 _DOMAIN_RE = re.compile(
     r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
     re.IGNORECASE,
@@ -47,7 +48,7 @@ class Settings:
 
     @property
     def scopes(self) -> tuple[str, ...]:
-        return (PHASE_ONE_SCOPE,)
+        return (PHASE_ONE_SCOPE, GROUPS_READONLY_SCOPE)
 
     @property
     def allowed_domain(self) -> str:

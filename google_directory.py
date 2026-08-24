@@ -34,6 +34,7 @@ from errors import (
 )
 from models import (
     aliases_response,
+    groups_response,
     sanitize_external_text,
     search_item,
     status_response,
@@ -43,6 +44,7 @@ from models import (
 
 LOGGER = logging.getLogger("google_mcp.directory")
 MAX_SEARCH_LIMIT = 20
+MAX_GROUP_LIMIT = 100
 DEFAULT_SEARCH_LIMIT = 10
 MIN_SEARCH_TERM_LENGTH = 3
 MAX_SEARCH_TERM_LENGTH = 128
@@ -341,3 +343,17 @@ class GoogleDirectoryClient:
             "next_page_available": has_next_page,
             "users": users,
         }
+
+    def user_groups(self, email: str) -> dict[str, Any]:
+        target = self.normalize_email(email)
+        result = self._execute(
+            lambda: self._service.groups().list(
+                userKey=target,
+                maxResults=MAX_GROUP_LIMIT,
+                orderBy="email",
+                fields="nextPageToken,groups(email,name,description)",
+            )
+        )
+        if not isinstance(result, dict):
+            raise DirectoryResponseError()
+        return groups_response(target, result, self._settings.allowed_domains)

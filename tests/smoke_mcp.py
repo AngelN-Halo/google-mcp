@@ -35,9 +35,10 @@ async def main() -> int:
             "google_user_search",
             "google_user_aliases",
             "google_user_summary",
+            "google_user_groups",
         }
         if names != expected:
-            raise RuntimeError("The live server does not expose exactly the phase-one tool set")
+            raise RuntimeError("The live server does not expose exactly the configured tool set")
         output["connected"] = True
         existing_result = await client.call_tool("google_user_status", {"email": existing})
         existing_data = existing_result.data

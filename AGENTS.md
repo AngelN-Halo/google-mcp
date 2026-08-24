@@ -3,8 +3,8 @@
 ## Scope and boundaries
 
 - This is a single Python 3.12 service; `server.py` is the FastMCP HTTP entrypoint, `google_directory.py` is the Google API boundary, and `models.py` builds the stable tool responses.
-- Google access is strictly read-only Directory API `users.get` and `users.list`; phase one has exactly four tools: status, search, aliases, and summary.
-- Keep the only OAuth scope as `https://www.googleapis.com/auth/admin.directory.user.readonly`. Do not add groups or other APIs without an explicit scope/security review.
+- Google access is strictly read-only Directory API `users.get`, `users.list`, and `groups.list`; the service has the four user tools plus `google_user_groups`.
+- Keep exactly these OAuth scopes: `https://www.googleapis.com/auth/admin.directory.user.readonly` and `https://www.googleapis.com/auth/admin.directory.group.readonly`. Do not add other APIs without an explicit scope/security review.
 - Never make delegated subject, customer ID, credential path, OAuth scope, raw resource name, or response fields caller-selectable; these stay in server configuration or code.
 - Explicit emails and returned aliases must match `GOOGLE_ALLOWED_DOMAINS` case-insensitively. Cross-domain aliases are filtered, never followed.
 - Directory names, aliases, organizational-unit paths, and echoed queries are untrusted text; preserve the MCP trust-boundary instructions and control/format-character sanitization when changing response schemas.

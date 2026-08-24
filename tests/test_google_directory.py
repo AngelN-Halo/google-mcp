@@ -9,7 +9,7 @@ import pytest
 from googleapiclient.errors import HttpError
 from google.auth.exceptions import GoogleAuthError
 
-from config import Settings
+from config import GROUPS_READONLY_SCOPE, PHASE_ONE_SCOPE, Settings
 from errors import (
     DirectoryAuthorizationError,
     DirectoryRateLimitError,
@@ -82,12 +82,26 @@ class FakeUsers:
         return FakeRequest(self.list_outcomes.pop(0))
 
 
+class FakeGroups:
+    def __init__(self, list_outcomes=None):
+        self.list_outcomes = list(list_outcomes or [])
+        self.list_calls = []
+
+    def list(self, **kwargs):
+        self.list_calls.append(kwargs)
+        return FakeRequest(self.list_outcomes.pop(0))
+
+
 class FakeService:
-    def __init__(self, users):
+    def __init__(self, users, groups=None):
         self._users = users
+        self._groups = groups or FakeGroups()
 
     def users(self):
         return self._users
+
+    def groups(self):
+        return self._groups
 
 
 def client(*, get=None, listed=None, max_attempts=4, sleep=None):
@@ -225,6 +239,56 @@ def test_summary_uses_one_api_call() -> None:
     assert result["display_name"] == "Alex Rivera"
     assert result["aliases"] == ["a.rivera@example.test"]
     assert len(users.get_calls) == 1
+
+
+def test_group_membership_is_bounded_filtered_and_sanitized() -> None:
+    users = FakeUsers()
+    groups = FakeGroups(
+        list_outcomes=[
+            {
+                "groups": [
+                    {
+                        "email": "zeta@example.test",
+                        "name": "Zeta" + chr(0x202E),
+                        "description": "Allowed",
+                    },
+                    {
+                        "email": "external@other.test",
+                        "name": "External",
+                    },
+                ],
+                "nextPageToken": "hidden-page-token",
+            }
+        ]
+    )
+    directory = GoogleDirectoryClient(settings(), service=FakeService(users, groups))
+    result = directory.user_groups("alex@example.test")
+    assert result == {
+        "email": "alex@example.test",
+        "count": 1,
+        "truncated": True,
+        "next_page_available": True,
+        "groups": [
+            {"email": "zeta@example.test", "name": "Zeta ", "description": "Allowed"}
+        ],
+    }
+    assert "hidden-page-token" not in result
+    assert groups.list_calls == [
+        {
+            "userKey": "alex@example.test",
+            "maxResults": 100,
+            "orderBy": "email",
+            "fields": "nextPageToken,groups(email,name,description)",
+        }
+    ]
+
+
+def test_group_membership_rejects_wrong_domain_before_api_call() -> None:
+    groups = FakeGroups(list_outcomes=[])
+    directory = GoogleDirectoryClient(settings(), service=FakeService(FakeUsers(), groups))
+    with pytest.raises(DomainPolicyError):
+        directory.user_groups("alex@other.test")
+    assert groups.list_calls == []
 
 
 def test_directory_text_removes_control_and_format_characters() -> None:
